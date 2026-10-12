@@ -275,6 +275,7 @@ namespace Singularity.Apps {
             }
             engine.filename = filename;
             lay = engine.run();
+            layout_gen++;
             if (edit_page >= lay.pages.size) edit_page = int.max(0, lay.pages.size - 1);
             if (fit_width || fit_page) fit_zoom();
             compute_positions();
@@ -558,6 +559,10 @@ namespace Singularity.Apps {
         }
 
         public override void dispose() {
+            if (spell_idle != 0) {
+                Source.remove(spell_idle);
+                spell_idle = 0;
+            }
             if (blink_id != 0) {
                 Source.remove(blink_id);
                 blink_id = 0;
@@ -580,15 +585,24 @@ namespace Singularity.Apps {
             int h = get_height();
             var bounds = Graphene.Rect();
             bounds.init(0, 0, w, h);
-            var cr = snap.append_cairo(bounds);
             if (opts.draft) {
-                cr.set_source_rgb(1, 1, 1);
-                cr.paint();
+                var white = Gdk.RGBA() { red = 1, green = 1, blue = 1, alpha = 1 };
+                snap.append_color(white, bounds);
             }
             if (lay == null) return;
             double s = scale;
             renderer.dim_body = edit_region == Write.Region.HEADER || edit_region == Write.Region.FOOTER;
             renderer.dim_headers = !renderer.dim_body && mode == ViewMode.PRINT;
+            double device = Singularity.Widgets.TileCache.device_scale(this);
+            string key = "%p|%u|%g|%g|%s|%s|%s|%s|%u|%d|%d|%s|%s|%s|%s".printf(lay, layout_gen, s, device, renderer.dim_body.to_string(), renderer.dim_headers.to_string(), renderer.tagged.to_string(), opts.key(),
+                spell_gen, (int) mode, (int) edit_region, show_comments.to_string(), spell_enabled.to_string(), grammar_enabled.to_string(), read_only.to_string());
+            if (key != page_cache_key) {
+                page_cache.clear();
+                page_cache_key = key;
+            }
+            page_frame++;
+            var shadow = Gdk.RGBA() { red = 0, green = 0, blue = 0, alpha = 0.18f };
+            var visible = new Gee.ArrayList<int>();
             for (int i = 0; i < lay.pages.size; i++) {
                 var p = lay.pages[i];
                 double x0 = page_x[i] - sx();
@@ -596,21 +610,39 @@ namespace Singularity.Apps {
                 double pw = p.width * s;
                 double ph = p.height * s;
                 if (y0 > h || y0 + ph < 0 || x0 > w || x0 + pw < 0) continue;
-                cr.save();
-                if (!opts.draft) {
-                    cr.set_source_rgba(0, 0, 0, 0.18);
-                    cr.rectangle(x0 + 1, y0 + 2, pw, ph);
-                    cr.fill();
+                visible.add(i);
+                if (!opts.draft) snap.append_color(shadow, Graphene.Rect().init((float) (x0 + 1), (float) (y0 + 2), (float) pw, (float) ph));
+                double left = Math.floor(x0 * device);
+                double shift = x0 * device - left;
+                var tex = page_texture(i, p, s, device, shift);
+                if (tex != null) {
+                    double sx0 = left / device, sy0 = Singularity.Widgets.TileCache.snap(y0, device);
+                    snap.append_scaled_texture(tex, Gsk.ScalingFilter.NEAREST, Graphene.Rect().init((float) sx0, (float) sy0, (float) (tex.width / device), (float) (tex.height / device)));
+                } else {
+                    var pcr = snap.append_cairo(Graphene.Rect().init((float) x0, (float) y0, (float) pw, (float) ph));
+                    pcr.translate(x0, y0);
+                    pcr.scale(s, s);
+                    pcr.rectangle(0, 0, p.width, p.height);
+                    pcr.clip();
+                    renderer.draw_page(pcr, p);
+                    if (!opts.print) draw_overlays(pcr, p, i);
                 }
-                cr.translate(x0, y0);
-                cr.scale(s, s);
-                cr.rectangle(0, 0, p.width, p.height);
-                cr.clip();
-                renderer.draw_page(cr, p);
-                if (!opts.print) draw_overlays(cr, p, i);
-                cr.restore();
             }
-            if (show_comments && has_comments() && mode == ViewMode.PRINT) draw_comment_balloons(cr);
+            var live = Graphene.Rect();
+            if (!opts.print && live_bounds(s, out live)) {
+                var cr = snap.append_cairo(live);
+                foreach (int i in visible) {
+                    var p = lay.pages[i];
+                    cr.save();
+                    cr.translate(page_x[i] - sx(), page_y[i] - sy());
+                    cr.scale(s, s);
+                    cr.rectangle(0, 0, p.width, p.height);
+                    cr.clip();
+                    draw_live_overlays(cr, i);
+                    cr.restore();
+                }
+            }
+            if (show_comments && has_comments() && mode == ViewMode.PRINT) draw_comment_balloons(snap.append_cairo(bounds));
         }
 
         private void draw_overlays(Cairo.Context cr, PageBox p, int index) {
@@ -660,10 +692,34 @@ namespace Singularity.Apps {
             }
             draw_comment_ranges(cr, p);
             draw_spelling(cr, p);
+        }
+
+        private bool caret_visible() {
+            return has_focus && caret_on && ed != null && !ed.has_selection && selected_obj == null;
+        }
+
+        private void draw_live_overlays(Cairo.Context cr, int index) {
             draw_selection(cr, index);
             draw_remote(cr, index);
             draw_object_selection(cr, index);
-            if (has_focus && caret_on && ed != null && !ed.has_selection && selected_obj == null) draw_caret(cr, index);
+            if (caret_visible()) draw_caret(cr, index);
+        }
+
+        private bool live_bounds(double s, out Graphene.Rect rect) {
+            rect = Graphene.Rect();
+            bool caret = caret_visible();
+            bool other = (ed != null && ed.has_selection) || remote.size > 0 || selected_obj != null || preedit != "";
+            if (!caret && !other) return false;
+            if (other) {
+                rect.init(0, 0, get_width(), get_height());
+                return true;
+            }
+            int pg;
+            double x, y, h;
+            if (!caret_rect(ed.focus, out pg, out x, out y, out h) || pg < 0 || pg >= lay.pages.size) return false;
+            double wx = page_x[pg] - sx() + x * s, wy = page_y[pg] - sy() + y * s;
+            rect.init((float) Math.floor(wx - 4), (float) Math.floor(wy - 4), (float) Math.ceil(8 + 2 * s), (float) Math.ceil(h * s + 8));
+            return true;
         }
 
         private void draw_comment_ranges(Cairo.Context cr, PageBox p) {
@@ -900,14 +956,14 @@ namespace Singularity.Apps {
                     continue;
                 }
                 seen.add(lb.para);
-                ensure_spell(lb.para);
+                ensure_spell_soon(lb.para);
                 draw_spell_line(cr, lb);
             }
         }
 
         private void draw_spell_line(Cairo.Context cr, LineBox lb) {
             var sc = spell[lb.para];
-            if (sc == null) return;
+            if (sc == null || sc.version != lb.para.version) return;
             foreach (var r in sc.ranges) {
                 if (r.grammar && !grammar_enabled) continue;
                 if (!r.grammar && !spell_enabled) continue;
@@ -943,10 +999,99 @@ namespace Singularity.Apps {
             }
         }
 
+        private const int MAX_PAGE_TEXTURE = 4096;
+        private const int64 MAX_PAGE_CACHE_BYTES = 160 * 1024 * 1024;
+
+        private class PageTexture {
+            public Gdk.Texture texture;
+            public int64 bytes;
+            public uint64 used;
+            public double shift;
+        }
+
+        private uint layout_gen = 0;
+        private uint spell_gen = 0;
+        private string page_cache_key = "";
+        private uint64 page_frame = 0;
+        private Gee.HashMap<int, PageTexture> page_cache = new Gee.HashMap<int, PageTexture>();
+
+        private Gdk.Texture? page_texture(int index, PageBox p, double s, double device, double shift) {
+            int px = (int) Math.ceil(p.width * s * device + shift), py = (int) Math.ceil(p.height * s * device);
+            if (px <= 0 || py <= 0 || px > MAX_PAGE_TEXTURE || py > MAX_PAGE_TEXTURE) return null;
+            var hit = page_cache[index];
+            if (hit != null && (hit.shift - shift).abs() > 0.01) {
+                page_cache.unset(index);
+                hit = null;
+            }
+            if (hit != null) {
+                hit.used = page_frame;
+                return hit.texture;
+            }
+            var native = get_native();
+            var gsk = native != null ? native.get_renderer() : null;
+            if (gsk == null) return null;
+            var ps = new Gtk.Snapshot();
+            ps.scale((float) device, (float) device);
+            var pcr = ps.append_cairo(Graphene.Rect().init(0, 0, (float) (px / device), (float) (py / device)));
+            pcr.translate(shift / device, 0);
+            pcr.scale(s, s);
+            pcr.rectangle(0, 0, p.width, p.height);
+            pcr.clip();
+            renderer.draw_page(pcr, p);
+            if (!opts.print) draw_overlays(pcr, p, index);
+            pcr = null;
+            var node = ps.free_to_node();
+            if (node == null) return null;
+            var entry = new PageTexture();
+            entry.texture = gsk.render_texture(node, Graphene.Rect().init(0, 0, px, py));
+            entry.bytes = (int64) px * py * 4;
+            entry.used = page_frame;
+            entry.shift = shift;
+            page_cache[index] = entry;
+            trim_page_cache();
+            return entry.texture;
+        }
+
+        private void trim_page_cache() {
+            int64 total = 0;
+            foreach (var e in page_cache.values) total += e.bytes;
+            while (total > MAX_PAGE_CACHE_BYTES && page_cache.size > 1) {
+                int oldest = -1;
+                uint64 when = uint64.MAX;
+                foreach (var e in page_cache.entries) {
+                    if (e.value.used < when) {
+                        when = e.value.used;
+                        oldest = e.key;
+                    }
+                }
+                total -= page_cache[oldest].bytes;
+                page_cache.unset(oldest);
+            }
+        }
+
+        private Gee.LinkedList<Paragraph> spell_queue = new Gee.LinkedList<Paragraph>();
+        private uint spell_idle = 0;
+
+        private void ensure_spell_soon(Paragraph p) {
+            var sc = spell[p];
+            if (sc != null && sc.version == p.version && sc.lang == proofing_language()) return;
+            if (!spell_queue.contains(p)) spell_queue.add(p);
+            if (spell_idle != 0) return;
+            spell_idle = Idle.add_full(Priority.LOW, () => {
+                int64 until = get_monotonic_time() + 6000;
+                while (!spell_queue.is_empty && get_monotonic_time() < until) ensure_spell(spell_queue.poll_head());
+                if (!spell_queue.is_empty) return Source.CONTINUE;
+                spell_idle = 0;
+                queue_draw();
+                return Source.REMOVE;
+            });
+        }
+
         private void ensure_spell(Paragraph p) {
             var sc = spell[p];
             string lang = proofing_language();
             if (sc != null && sc.version == p.version && sc.lang == lang) return;
+            spell_gen++;
             sc = new SpellCache();
             sc.version = p.version;
             sc.lang = lang;
@@ -1015,6 +1160,7 @@ namespace Singularity.Apps {
 
         public void refresh_spelling() {
             spell.clear();
+            spell_gen++;
             queue_draw();
         }
 

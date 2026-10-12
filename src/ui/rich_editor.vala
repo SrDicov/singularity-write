@@ -362,6 +362,9 @@ namespace Singularity.Apps {
 
         public Singularity.Widgets.BubbleSwitcher view_switch;
 
+        private Write.DocStats? stats_cache = null;
+        private unowned Document? stats_doc = null;
+
         private void schedule_status() {
             if (status_id != 0) return;
             status_id = Timeout.add(120, () => {
@@ -383,7 +386,11 @@ namespace Singularity.Apps {
             else if (view.mode == ViewMode.OUTLINE) status_page.label = _("Outline");
             else if (view.mode == ViewMode.DRAFT) status_page.label = _("Draft");
             else status_page.label = _("Page %d of %d").printf(cur + 1, total) + (num != (cur + 1).to_string() ? " (%s)".printf(num) : "");
-            var st = Write.Stats.compute(doc, false);
+            if (stats_cache == null || stats_doc != doc) {
+                stats_cache = Write.Stats.compute(doc, false);
+                stats_doc = doc;
+            }
+            Write.DocStats st = (!) stats_cache;
             if (ed.has_selection) {
                 int sel = Write.Stats.count_words(ed.selected_text());
                 status_words.label = ngettext("%d of %d word", "%d of %d words", st.words).printf(sel, st.words);
@@ -626,6 +633,7 @@ namespace Singularity.Apps {
         }
 
         private void on_changed() {
+            stats_cache = null;
             schedule_live_publish();
             schedule_change_script();
             if (!modified) {
