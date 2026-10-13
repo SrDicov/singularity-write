@@ -1973,7 +1973,8 @@ namespace Singularity.Apps {
                     var f = fd.open.end(res);
                     Write.FileFormat fmt;
                     var other = WriteFiles.load(f, out fmt);
-                    string author = other.meta.last_modified_by != "" ? other.meta.last_modified_by : (other.meta.author != "" ? other.meta.author : f.get_basename());
+                    string author = other.meta.last_modified_by;
+                    if (author == "") author = other.meta.author != "" ? other.meta.author : f.get_basename();
                     if (combine) {
                         r.ed.checkpoint(_("Combine"));
                         var merged = Review.compare(r.doc, other, author);
