@@ -3217,7 +3217,7 @@ namespace Singularity.Apps {
             try {
                 string t;
                 if (!FileUtils.get_contents(path(), out t)) return list;
-                foreach (string block in t.split("\n\u001e\n")) if (block.strip() != "") list.add(block.strip());
+                foreach (string block in t.split("\n\x1e\n")) if (block.strip() != "") list.add(block.strip());
             } catch (Error e) {
             }
             return list;
@@ -3226,7 +3226,7 @@ namespace Singularity.Apps {
         private static void store(Gee.ArrayList<string> list) {
             try {
                 DirUtils.create_with_parents(Path.get_dirname(path()), 0700);
-                FileUtils.set_contents(path(), string.joinv("\n\u001e\n", list.to_array()));
+                FileUtils.set_contents(path(), string.joinv("\n\x1e\n", list.to_array()));
             } catch (Error e) {
             }
         }
