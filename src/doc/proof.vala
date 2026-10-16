@@ -258,35 +258,53 @@ namespace Write {
             public string[] synonyms;
         }
 
-        public Gee.ArrayList<Meaning> lookup(string word, string lang) {
-            var result = new Gee.ArrayList<Meaning>();
-            string? path = file_for(lang);
-            if (path == null) return result;
+        private string? loaded_path = null;
+        private string[] loaded_lines = {};
+        private Gee.HashMap<string, int> loaded_index = new Gee.HashMap<string, int>();
+
+        private bool load(string path) {
+            if (loaded_path == path) return true;
+            loaded_path = null;
+            loaded_lines = {};
+            loaded_index.clear();
             try {
                 string data;
                 FileUtils.get_contents(path, out data);
                 if (!data.validate()) data = Formats.decode_text(data.data);
-                string needle = word.down().strip();
-                string[] lines = data.split("\n");
-                for (int i = 1; i < lines.length; i++) {
-                    string l = lines[i];
-                    int bar = l.index_of_char('|');
-                    if (bar < 0 || l.has_prefix("(")) continue;
-                    if (l.substring(0, bar).down() != needle) continue;
-                    int n = int.parse(l.substring(bar + 1));
-                    for (int k = 1; k <= n && i + k < lines.length; k++) {
-                        string[] parts = lines[i + k].strip().split("|");
-                        if (parts.length < 2) continue;
-                        var m = new Meaning();
-                        m.pos = parts[0].replace("(", "").replace(")", "");
-                        string[] syn = {};
-                        for (int j = 1; j < parts.length; j++) if (parts[j].strip() != "") syn += parts[j].strip();
-                        m.synonyms = syn;
-                        result.add(m);
-                    }
-                    break;
-                }
+                loaded_lines = data.split("\n");
             } catch (Error e) {
+                return false;
+            }
+            for (int i = 1; i < loaded_lines.length; i++) {
+                unowned string l = loaded_lines[i];
+                if (l.has_prefix("(")) continue;
+                int bar = l.index_of_char('|');
+                if (bar <= 0) continue;
+                string key = l.substring(0, bar).down();
+                if (!loaded_index.has_key(key)) loaded_index[key] = i;
+            }
+            loaded_path = path;
+            return true;
+        }
+
+        public Gee.ArrayList<Meaning> lookup(string word, string lang) {
+            var result = new Gee.ArrayList<Meaning>();
+            string? path = file_for(lang);
+            if (path == null || !load(path)) return result;
+            string needle = word.down().strip();
+            if (!loaded_index.has_key(needle)) return result;
+            int i = loaded_index[needle];
+            unowned string l = loaded_lines[i];
+            int n = int.parse(l.substring(l.index_of_char('|') + 1));
+            for (int k = 1; k <= n && i + k < loaded_lines.length; k++) {
+                string[] parts = loaded_lines[i + k].strip().split("|");
+                if (parts.length < 2) continue;
+                var m = new Meaning();
+                m.pos = parts[0].replace("(", "").replace(")", "");
+                string[] syn = {};
+                for (int j = 1; j < parts.length; j++) if (parts[j].strip() != "") syn += parts[j].strip();
+                m.synonyms = syn;
+                result.add(m);
             }
             return result;
         }
