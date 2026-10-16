@@ -3021,7 +3021,7 @@ namespace Singularity.Apps {
                 box.append(g);
                 var pg = new PreferencesGroup(_("People"));
                 pg.add_row(new ActionRow(r.live.name, _("You")));
-                foreach (var p in r.live.peers.values) pg.add_row(new ActionRow(p.name, p.color));
+                foreach (var p in r.live.peers.values) pg.add_row(new ActionRow(r.live.display_name(p), p.color));
                 box.append(pg);
                 footer(dlg, _("Stop Sharing"), () => r.stop_live());
                 if (r.live.mode == WriteLiveSession.Mode.COLLAB && r.live.collab_hosting) live_people(r, box, dlg, true);

@@ -142,6 +142,13 @@ foreach t : ['docx', 'odt', 'formats', 'layout', 'features']
   test(t, exe, env: ['WRITE_FIXTURES=' + meson.current_source_dir() / 'tests' / 'fixtures', 'TMPDIR=' + meson.current_build_dir()])
 endforeach
 
+live_names_test = executable('write-live-names-test',
+  engine + files('src/ui/live_session.vala', 'tests/live_names_test.vala'),
+  dependencies: engine_deps + [poppler_dep, libsingularity_dep, soup_dep],
+  vala_args: engine_args,
+)
+test('live-names', live_names_test)
+
 proofing_test = executable('write-proofing-test',
   engine + files('src/ui/doc_view.vala', 'tests/harness.vala', 'tests/proofing_test.vala'),
   dependencies: engine_deps + [poppler_dep, libsingularity_dep],

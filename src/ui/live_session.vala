@@ -4,6 +4,7 @@ namespace Singularity.Apps {
         public string id = "";
         public string name = "";
         public string color = "#1c71d8";
+        public string host = "";
         public Write.LivePosition? focus = null;
         public Write.LivePosition? anchor = null;
         public int64 seen = 0;
@@ -127,17 +128,25 @@ namespace Singularity.Apps {
             return p;
         }
 
-        private Json.Object presence_json(string id, string nm, string col, Write.LivePosition? f, Write.LivePosition? a) {
+        private Json.Object presence_json(string id, string nm, string col, Write.LivePosition? f, Write.LivePosition? a, string host) {
             var o = new Json.Object();
             o.set_string_member("t", "presence");
             o.set_string_member("id", id);
             o.set_string_member("name", nm);
+            if (host != "") o.set_string_member("host", host);
             o.set_string_member("color", col);
             var fj = pos_json(f);
             if (fj != null) o.set_object_member("focus", fj);
             var aj = pos_json(a);
             if (aj != null) o.set_object_member("anchor", aj);
             return o;
+        }
+
+        public string display_name(WriteLivePeer peer) {
+            if (peer.host == "") return peer.name;
+            bool shared = peer.name == name;
+            foreach (var other in peers.values) if (other != peer && other.name == peer.name) shared = true;
+            return shared ? "%s (%s)".printf(peer.name, peer.host) : peer.name;
         }
 
         private void read_presence(Json.Object o) {
@@ -147,6 +156,7 @@ namespace Singularity.Apps {
             p.id = id;
             p.name = o.has_member("name") ? o.get_string_member("name") : _("Guest");
             p.color = o.has_member("color") ? o.get_string_member("color") : "#1c71d8";
+            p.host = o.has_member("host") ? o.get_string_member("host") : "";
             p.focus = pos_from(o, "focus");
             p.anchor = pos_from(o, "anchor");
             p.seen = get_real_time();
@@ -211,7 +221,7 @@ namespace Singularity.Apps {
                     w.set_object_member("state", current_state.to_json());
                     conn.send_text(encode(w));
                     if (my_presence != null) conn.send_text(encode(my_presence));
-                    foreach (var p in peers.values) conn.send_text(encode(presence_json(p.id, p.name, p.color, p.focus, p.anchor)));
+                    foreach (var p in peers.values) conn.send_text(encode(presence_json(p.id, p.name, p.color, p.focus, p.anchor, p.host)));
                     return;
                 }
                 if (t == "ops" || t == "presence") broadcast(o, cid);
@@ -441,7 +451,7 @@ namespace Singularity.Apps {
         }
 
         public void presence(Write.LivePosition? focus, Write.LivePosition? anchor) {
-            var o = presence_json(my_id, name, color, focus, anchor);
+            var o = presence_json(my_id, name, color, focus, anchor, Environment.get_host_name());
             my_presence = o;
             switch (mode) {
                 case Mode.COLLAB:

@@ -420,7 +420,7 @@ namespace Singularity.Apps {
             if (track != "") stl = stl != "" ? stl + "  " + track : track;
             if (live != null) {
                 var names = new Gee.ArrayList<string>();
-                foreach (var peer in live.peers.values) names.add(peer.name);
+                foreach (var peer in live.peers.values) names.add(live.display_name(peer));
                 string lv = names.size == 0 ? _("Live: waiting for others") : _("Live with %s").printf(string.joinv(", ", names.to_array()));
                 stl = stl != "" ? stl + "  " + lv : lv;
             }
@@ -622,7 +622,7 @@ namespace Singularity.Apps {
                 foreach (var peer in live.peers.values) {
                     if (peer.focus == null) continue;
                     var rc = new RemoteCaret();
-                    rc.name = peer.name;
+                    rc.name = live.display_name(peer);
                     rc.color = peer.color;
                     rc.focus = peer.focus;
                     rc.anchor = peer.anchor;
