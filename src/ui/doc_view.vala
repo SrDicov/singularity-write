@@ -2062,5 +2062,29 @@ namespace Singularity.Apps {
             attribute_values = {};
             return false;
         }
+
+        // GTK 4.14/4.16/4.22 virtuals. Returning false tells GTK this view does
+        // not expose those extents/offsets; the built-in fallback is used.
+        public void get_default_attributes(out string[] attribute_names, out string[] attribute_values) {
+            attribute_names = {};
+            attribute_values = {};
+        }
+
+        public bool get_extents(uint start, uint end, Graphene.Rect extents) {
+            return false;
+        }
+
+        public bool get_offset(Graphene.Point point, out uint offset) {
+            offset = 0;
+            return false;
+        }
+
+        public bool set_caret_position(uint offset) {
+            return false;
+        }
+
+        public bool set_selection(size_t i, Gtk.AccessibleTextRange range) {
+            return false;
+        }
     }
 }
